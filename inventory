@@ -1,0 +1,8 @@
+windows:
+  hosts:
+    10.107.180.200:
+      ansible_user: "LMJ-SQL\tieto_admin"
+      ansible_password: "weave-Ebk9+D"
+      ansible_port: 5986
+      ansible_connection: winrm
+      ansible_winrm_server_cert_validation: ignore

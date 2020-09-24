@@ -1,0 +1,13 @@
+---
+- hosts: windows
+
+  tasks:
+    - name: Ensure 7-Zip is installed via Chocolatey
+      win_chocolatey:
+        name: 7zip
+        state: present
+
+    - name: Create WalttiPro directory
+      win_file:
+        path: C:\Applications\WalttiPro3
+        state: directory

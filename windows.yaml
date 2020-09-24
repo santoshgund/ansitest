@@ -1,0 +1,145 @@
+---
+- name: Windows Baseline
+  hosts: windows
+  connection: winrm
+  gather_facts: true
+  vars:
+    ansible_user: "ojala"
+    ansible_password: "FOOfoo#123"
+    ansible_connection: winrm 
+    ansible_winrm_transport: basic 
+    ansible_winrm_server_cert_validation: ignore
+
+  tasks:
+    - name: Ensure 7-Zip is installed via Chocolatey
+      win_chocolatey:
+        name: 7zip
+        state: present
+
+    - name: Install IIS Web-Server with sub features and management tools
+      win_feature:
+        name: Web-Server
+        state: present
+        include_sub_features: yes
+        include_management_tools: yes
+      register: win_feature
+
+    - name: Install IIS (Web-Server and Web-Common-Http)
+      win_feature:
+        name:
+        - Web-Server
+        - Web-Common-Http
+        state: present
+    
+    - name: install urlrewrite module for IIS
+      win_chocolatey:
+        name: urlrewrite
+        state: present
+
+    - name: Reboot if installing Web-Server feature requires it
+      win_reboot:
+      when: win_feature.reboot_required
+    
+    - name: Create WalttiPro directory
+      win_file:
+        path: C:\Applications\WalttiPro
+        state: directory
+    
+    - name: Check if a WalttiPro service is installed
+      win_service:
+        name: WalttiProService
+      register: main_service_installed
+
+    - name: Check if a WalttiProSupport service is installed
+      win_service:
+        name: WalttiProSupportService
+      register: support_service_installed
+
+    
+    - name: Check if a WalttiPro Service is already Running 
+      win_service:
+        name: WalttiProService
+      register: main_service_info
+        
+    - name: Stop WalttiPro service
+      win_service:
+        name: WalttiProService
+        state: stopped
+      when: main_service_installed.exists == true and main_service_info.state == "running"
+
+    - name: Check if a Support Service is already running
+      win_service:
+        name: WalttiProSupportService
+      register: support_service_info
+    
+    - name: Stop a service
+      win_service:
+        name: WalttiProSupportService
+        state: stopped
+      when: support_service_installed.exists==true and support_service_info.state == "running"
+
+    # - name: Copy WalttiProService folder 
+    #   win_copy:
+    #     src: Services
+    #     dest: C:\Applications\WalttiPro
+    
+    # - name: Copy UI folder 
+    #   win_copy:
+    #     src: UI
+    #     dest: C:\Applications\WalttiPro
+  
+    - name: Create and install WalttiProService
+      win_service:
+        name: WalttiProService
+        path: C:\Applications\WalttiPro\Services\TE.ITS.WalttiPro.ServiceHost.exe
+        display_name: WalttiProService
+        description: WalttiPro backend service.
+      when: main_service_installed.exists == false
+
+    - name: WalltiProService-Set service startup mode to auto and ensure it is started
+      win_service:
+        name: WalttiProService
+        start_mode: auto
+        state: started
+
+    - name: Create and install WalttiProSupportService
+      win_service:
+        name: WalttiProSupportService
+        path: C:\Applications\WalttiPro\Services\TE.ITS.WalttiPro.SupportServiceHost.exe
+        display_name: WalttiProSupportService
+        description: WalttiPro support service to process wallet transactions.
+      when: support_service_installed.exists == false
+
+    - name: WalttiProSupportService-Set service startup mode to auto and ensure it is started
+      win_service:
+        name: WalttiProSupportService
+        start_mode: auto
+        state: started
+
+    - name: Add WalttiPro web application on IIS.
+      win_iis_webapplication:
+        name: walttibenefit
+        site: Default Web Site
+        state: present
+        physical_path: C:\Applications\WalttiPro\UI
+
+    - name: Run shell command to get Server certificate Thumbprint
+      win_shell: |
+        $Thumbprint = (Get-ChildItem -Path Cert:\LocalMachine\My | Where-Object {$_.Subject -match "{{ public_ip_address }}"}).Thumbprint
+        write-host $Thumbprint
+      register: cer_thumbprint
+ 
+    - name: Set Certificate Thumbprint fact 
+      set_fact:
+        thumbprint: "{{ cer_thumbprint.stdout_lines[0] }}"
+
+    - debug:
+        var: thumbprint
+
+    - name: Add a HTTPS binding
+      win_iis_webbinding:
+        name: Default Web Site
+        protocol: https
+        port: 443
+        certificate_hash: "{{ thumbprint }}"
+        state: present
